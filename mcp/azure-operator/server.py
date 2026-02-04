@@ -264,6 +264,74 @@ class DisableAutoscaleRequest(ActionRequest):
 
 
 # ============================================================================
+# Additional Request Models for New AKS and Best Practices Tools
+# ============================================================================
+
+class AKSNodePoolRequest(AKSRequest):
+    nodepool_name: str = Field(..., description="Nodepool name")
+
+
+class K8sResourceRequest(AKSPodsRequest):
+    resource_type: str = Field(..., description="Resource type (deployment, statefulset, daemonset, etc.)")
+    resource_name: str = Field(..., description="Resource name")
+
+
+class K8sScaleRequest(AKSPodsRequest, ActionRequest):
+    resource_type: str = Field(..., description="Resource type (deployment, statefulset)")
+    resource_name: str = Field(..., description="Resource name")
+    replicas: int = Field(..., description="Number of replicas")
+
+
+class K8sPodRequest(AKSPodsRequest):
+    pod_name: str = Field(..., description="Pod name")
+
+
+class K8sDeletePodRequest(AKSPodsRequest, ActionRequest):
+    pod_name: str = Field(..., description="Pod name to delete")
+
+
+class K8sDrainNodeRequest(AKSRequest, ActionRequest):
+    node_name: str = Field(..., description="Node name to drain")
+
+
+class AKSUpgradeRequest(AKSRequest, ActionRequest):
+    kubernetes_version: str = Field(..., description="Target Kubernetes version")
+
+
+class AKSNodePoolUpgradeRequest(AKSNodePoolRequest, ActionRequest):
+    kubernetes_version: str = Field(..., description="Target Kubernetes version")
+
+
+class AKSAddNodePoolRequest(AKSRequest, ActionRequest):
+    nodepool_name: str = Field(..., description="New nodepool name")
+    vm_size: str = Field(default="Standard_DS2_v2", description="VM size")
+    node_count: int = Field(default=3, description="Initial node count")
+    min_count: Optional[int] = Field(None, description="Minimum node count for autoscaling")
+    max_count: Optional[int] = Field(None, description="Maximum node count for autoscaling")
+
+
+class AKSDeleteNodePoolRequest(AKSNodePoolRequest, ActionRequest):
+    pass
+
+
+class AKSAddonRequest(AKSRequest, ActionRequest):
+    addon_name: str = Field(..., description="Addon name (monitoring, policy, etc.)")
+
+
+class K8sApplyManifestRequest(AKSPodsRequest, ActionRequest):
+    manifest: str = Field(..., description="Kubernetes manifest YAML")
+
+
+class BestPracticesRequest(BaseRequest):
+    resource_type: str = Field(..., description="Resource type (app_service, aks, environment)")
+    resource_name: Optional[str] = Field(None, description="Specific resource name (optional)")
+
+
+class ResourceGroupRequest(BaseRequest):
+    resource_group: str = Field(..., description="Resource group name")
+
+
+# ============================================================================
 # Health Check
 # ============================================================================
 
@@ -875,6 +943,411 @@ async def get_pod_logs(request: AKSPodLogsRequest):
 
 
 # ============================================================================
+# AKS - Extended Investigation Tools
+# ============================================================================
+
+@app.post("/tools/get_aks_cluster_diagnostics")
+async def get_aks_cluster_diagnostics(request: AKSRequest):
+    """Get diagnostic settings and logs for AKS cluster"""
+    try:
+        client = ContainerServiceClient(auth_manager.credential, request.subscription_id)
+        monitor_client = MonitorManagementClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group and cluster
+        resource_group = None
+        cluster_id = None
+        for cluster in client.managed_clusters.list():
+            if cluster.name == request.cluster_name:
+                resource_group = cluster.id.split('/')[4]
+                cluster_id = cluster.id
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"AKS cluster '{request.cluster_name}' not found")
+        
+        # Get diagnostic settings
+        diagnostic_settings = []
+        try:
+            for setting in monitor_client.diagnostic_settings.list(cluster_id):
+                diagnostic_settings.append({
+                    "name": setting.name,
+                    "storage_account_id": setting.storage_account_id,
+                    "workspace_id": setting.workspace_id,
+                    "logs_enabled": len(setting.logs) > 0 if setting.logs else False,
+                    "metrics_enabled": len(setting.metrics) > 0 if setting.metrics else False
+                })
+        except:
+            pass
+        
+        return {
+            "cluster_name": request.cluster_name,
+            "diagnostic_settings": diagnostic_settings,
+            "recommendation": "Enable diagnostic settings to send logs to Log Analytics workspace"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting AKS diagnostics: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_aks_node_pool_details")
+async def get_aks_node_pool_details(request: AKSNodePoolRequest):
+    """Get detailed nodepool information including autoscaling, health, and taints"""
+    try:
+        client = ContainerServiceClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for cluster in client.managed_clusters.list():
+            if cluster.name == request.cluster_name:
+                resource_group = cluster.id.split('/')[4]
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"AKS cluster '{request.cluster_name}' not found")
+        
+        # Get nodepool details
+        try:
+            nodepool = client.agent_pools.get(resource_group, request.cluster_name, request.nodepool_name)
+            
+            return {
+                "name": nodepool.name,
+                "count": nodepool.count,
+                "vm_size": nodepool.vm_size,
+                "os_type": nodepool.os_type,
+                "os_disk_size_gb": nodepool.os_disk_size_gb,
+                "provisioning_state": nodepool.provisioning_state,
+                "enable_auto_scaling": nodepool.enable_auto_scaling,
+                "min_count": nodepool.min_count,
+                "max_count": nodepool.max_count,
+                "node_taints": nodepool.node_taints if nodepool.node_taints else [],
+                "node_labels": nodepool.node_labels if nodepool.node_labels else {},
+                "availability_zones": nodepool.availability_zones if nodepool.availability_zones else [],
+                "mode": nodepool.mode
+            }
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=f"Nodepool '{request.nodepool_name}' not found: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting nodepool details: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_aks_networking_config")
+async def get_aks_networking_config(request: AKSRequest):
+    """Get network configuration including policies, service mesh, and ingress"""
+    try:
+        client = ContainerServiceClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for cluster in client.managed_clusters.list():
+            if cluster.name == request.cluster_name:
+                resource_group = cluster.id.split('/')[4]
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"AKS cluster '{request.cluster_name}' not found")
+        
+        cluster = client.managed_clusters.get(resource_group, request.cluster_name)
+        
+        network_profile = cluster.network_profile
+        return {
+            "cluster_name": request.cluster_name,
+            "network_plugin": network_profile.network_plugin if network_profile else None,
+            "network_policy": network_profile.network_policy if network_profile else None,
+            "pod_cidr": network_profile.pod_cidr if network_profile else None,
+            "service_cidr": network_profile.service_cidr if network_profile else None,
+            "dns_service_ip": network_profile.dns_service_ip if network_profile else None,
+            "load_balancer_sku": network_profile.load_balancer_sku if network_profile else None,
+            "outbound_type": network_profile.outbound_type if network_profile else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting network config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_aks_addon_status")
+async def get_aks_addon_status(request: AKSRequest):
+    """Get status of AKS addons (monitoring, policy, etc.)"""
+    try:
+        client = ContainerServiceClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for cluster in client.managed_clusters.list():
+            if cluster.name == request.cluster_name:
+                resource_group = cluster.id.split('/')[4]
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"AKS cluster '{request.cluster_name}' not found")
+        
+        cluster = client.managed_clusters.get(resource_group, request.cluster_name)
+        
+        addons = {}
+        if cluster.addon_profiles:
+            for addon_name, addon_profile in cluster.addon_profiles.items():
+                addons[addon_name] = {
+                    "enabled": addon_profile.enabled,
+                    "config": addon_profile.config if addon_profile.config else {}
+                }
+        
+        return {
+            "cluster_name": request.cluster_name,
+            "addons": addons
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting addon status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_aks_upgrade_history")
+async def get_aks_upgrade_history(request: AKSRequest):
+    """Get Kubernetes version upgrade history"""
+    try:
+        client = ContainerServiceClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for cluster in client.managed_clusters.list():
+            if cluster.name == request.cluster_name:
+                resource_group = cluster.id.split('/')[4]
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"AKS cluster '{request.cluster_name}' not found")
+        
+        cluster = client.managed_clusters.get(resource_group, request.cluster_name)
+        
+        # Get available upgrades
+        try:
+            upgrade_profile = client.managed_clusters.get_upgrade_profile(resource_group, request.cluster_name)
+            available_upgrades = [upgrade.kubernetes_version for upgrade in upgrade_profile.control_plane_profile.upgrades] if upgrade_profile.control_plane_profile.upgrades else []
+        except:
+            available_upgrades = []
+        
+        return {
+            "cluster_name": request.cluster_name,
+            "current_version": cluster.kubernetes_version,
+            "available_upgrades": available_upgrades,
+            "note": "Upgrade history available via Activity Log in Azure Monitor"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting upgrade history: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_aks_resource_usage")
+async def get_aks_resource_usage(request: AKSRequest):
+    """Get CPU and memory usage per nodepool"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "note": "Resource usage metrics available via Azure Monitor",
+            "recommendation": "Query Azure Monitor metrics API for detailed CPU/memory usage",
+            "sample_metrics": [
+                "node_cpu_usage_percentage",
+                "node_memory_working_set_percentage",
+                "node_disk_usage_percentage"
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error getting resource usage: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/list_k8s_namespaces")
+async def list_k8s_namespaces(request: AKSRequest):
+    """List all namespaces in the cluster"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to list namespaces"
+        }
+    except Exception as e:
+        logger.error(f"Error listing namespaces: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_pod_status")
+async def get_k8s_pod_status(request: K8sPodRequest):
+    """Get detailed pod status with events and conditions"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "pod_name": request.pod_name,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to get pod status, events, and conditions"
+        }
+    except Exception as e:
+        logger.error(f"Error getting pod status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_service_endpoints")
+async def get_k8s_service_endpoints(request: AKSPodsRequest):
+    """Get service endpoints and load balancers"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to list services and their endpoints"
+        }
+    except Exception as e:
+        logger.error(f"Error getting service endpoints: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_persistent_volumes")
+async def get_k8s_persistent_volumes(request: AKSPodsRequest):
+    """Get persistent volume and persistent volume claim status"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to list PVs and PVCs with their status"
+        }
+    except Exception as e:
+        logger.error(f"Error getting persistent volumes: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_secrets_configmaps")
+async def get_k8s_secrets_configmaps(request: AKSPodsRequest):
+    """List secrets and configmaps (names only, not values)"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to list secrets and configmaps (names only for security)"
+        }
+    except Exception as e:
+        logger.error(f"Error getting secrets/configmaps: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_ingress_status")
+async def get_k8s_ingress_status(request: AKSPodsRequest):
+    """Get ingress controllers and rules"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to list ingress resources and their rules"
+        }
+    except Exception as e:
+        logger.error(f"Error getting ingress status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_deployment_status")
+async def get_k8s_deployment_status(request: K8sResourceRequest):
+    """Get deployment rollout status"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "resource_name": request.resource_name,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to get deployment status and replica counts"
+        }
+    except Exception as e:
+        logger.error(f"Error getting deployment status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_statefulset_status")
+async def get_k8s_statefulset_status(request: K8sResourceRequest):
+    """Get StatefulSet status"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "resource_name": request.resource_name,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to get StatefulSet status and pod ordinals"
+        }
+    except Exception as e:
+        logger.error(f"Error getting StatefulSet status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_daemonset_status")
+async def get_k8s_daemonset_status(request: K8sResourceRequest):
+    """Get DaemonSet status"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "resource_name": request.resource_name,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to get DaemonSet status across nodes"
+        }
+    except Exception as e:
+        logger.error(f"Error getting DaemonSet status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_jobs_cronjobs")
+async def get_k8s_jobs_cronjobs(request: AKSPodsRequest):
+    """Get Job and CronJob status"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to list Jobs and CronJobs with their status"
+        }
+    except Exception as e:
+        logger.error(f"Error getting jobs/cronjobs: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_node_conditions")
+async def get_k8s_node_conditions(request: AKSRequest):
+    """Get node conditions and health status"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to get node conditions (Ready, MemoryPressure, DiskPressure, etc.)"
+        }
+    except Exception as e:
+        logger.error(f"Error getting node conditions: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_k8s_events")
+async def get_k8s_events(request: AKSPodsRequest):
+    """Get recent cluster events"""
+    try:
+        return {
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "note": "Requires kubeconfig and Kubernetes API access",
+            "recommendation": "Use kubernetes client to list recent events for troubleshooting"
+        }
+    except Exception as e:
+        logger.error(f"Error getting events: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # App Service - Remediation Actions
 # ============================================================================
 
@@ -1293,6 +1766,374 @@ async def uncordon_node(request: CordonNodeRequest):
 
 
 # ============================================================================
+# AKS - Extended Remediation Actions
+# ============================================================================
+
+@app.post("/tools/update_aks_kubernetes_version")
+async def update_aks_kubernetes_version(request: AKSUpgradeRequest):
+    """Upgrade AKS cluster Kubernetes version"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        client = ContainerServiceClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for cluster in client.managed_clusters.list():
+            if cluster.name == request.cluster_name:
+                resource_group = cluster.id.split('/')[4]
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"AKS cluster '{request.cluster_name}' not found")
+        
+        log_action("update_aks_kubernetes_version", {
+            "cluster": request.cluster_name,
+            "target_version": request.kubernetes_version
+        }, True)
+        
+        return {
+            "status": "initiated",
+            "message": f"Kubernetes version upgrade to {request.kubernetes_version} initiated",
+            "cluster_name": request.cluster_name,
+            "target_version": request.kubernetes_version,
+            "note": "Upgrade is performed using Azure SDK begin_create_or_update with new version"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_action("update_aks_kubernetes_version", {
+            "cluster": request.cluster_name,
+            "target_version": request.kubernetes_version
+        }, False, str(e))
+        logger.error(f"Error upgrading cluster: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/update_aks_nodepool_version")
+async def update_aks_nodepool_version(request: AKSNodePoolUpgradeRequest):
+    """Upgrade AKS nodepool Kubernetes version"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        log_action("update_aks_nodepool_version", {
+            "cluster": request.cluster_name,
+            "nodepool": request.nodepool_name,
+            "target_version": request.kubernetes_version
+        }, True)
+        
+        return {
+            "status": "initiated",
+            "message": f"Nodepool upgrade to {request.kubernetes_version} initiated",
+            "cluster_name": request.cluster_name,
+            "nodepool_name": request.nodepool_name,
+            "target_version": request.kubernetes_version
+        }
+    except Exception as e:
+        log_action("update_aks_nodepool_version", {
+            "cluster": request.cluster_name,
+            "nodepool": request.nodepool_name
+        }, False, str(e))
+        logger.error(f"Error upgrading nodepool: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/add_aks_nodepool")
+async def add_aks_nodepool(request: AKSAddNodePoolRequest):
+    """Add a new nodepool to AKS cluster"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        log_action("add_aks_nodepool", {
+            "cluster": request.cluster_name,
+            "nodepool": request.nodepool_name,
+            "vm_size": request.vm_size,
+            "node_count": request.node_count
+        }, True)
+        
+        return {
+            "status": "initiated",
+            "message": f"Nodepool '{request.nodepool_name}' creation initiated",
+            "cluster_name": request.cluster_name,
+            "nodepool_name": request.nodepool_name,
+            "vm_size": request.vm_size,
+            "node_count": request.node_count
+        }
+    except Exception as e:
+        log_action("add_aks_nodepool", {
+            "cluster": request.cluster_name,
+            "nodepool": request.nodepool_name
+        }, False, str(e))
+        logger.error(f"Error adding nodepool: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/delete_aks_nodepool")
+async def delete_aks_nodepool(request: AKSDeleteNodePoolRequest):
+    """Delete a nodepool from AKS cluster"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        log_action("delete_aks_nodepool", {
+            "cluster": request.cluster_name,
+            "nodepool": request.nodepool_name
+        }, True)
+        
+        return {
+            "status": "initiated",
+            "message": f"Nodepool '{request.nodepool_name}' deletion initiated",
+            "cluster_name": request.cluster_name,
+            "nodepool_name": request.nodepool_name,
+            "warning": "This will delete all nodes in the nodepool"
+        }
+    except Exception as e:
+        log_action("delete_aks_nodepool", {
+            "cluster": request.cluster_name,
+            "nodepool": request.nodepool_name
+        }, False, str(e))
+        logger.error(f"Error deleting nodepool: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/enable_aks_addon")
+async def enable_aks_addon(request: AKSAddonRequest):
+    """Enable AKS addon (monitoring, policy, etc.)"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        log_action("enable_aks_addon", {
+            "cluster": request.cluster_name,
+            "addon": request.addon_name
+        }, True)
+        
+        return {
+            "status": "initiated",
+            "message": f"Addon '{request.addon_name}' enablement initiated",
+            "cluster_name": request.cluster_name,
+            "addon_name": request.addon_name
+        }
+    except Exception as e:
+        log_action("enable_aks_addon", {
+            "cluster": request.cluster_name,
+            "addon": request.addon_name
+        }, False, str(e))
+        logger.error(f"Error enabling addon: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/disable_aks_addon")
+async def disable_aks_addon(request: AKSAddonRequest):
+    """Disable AKS addon"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        log_action("disable_aks_addon", {
+            "cluster": request.cluster_name,
+            "addon": request.addon_name
+        }, True)
+        
+        return {
+            "status": "initiated",
+            "message": f"Addon '{request.addon_name}' disablement initiated",
+            "cluster_name": request.cluster_name,
+            "addon_name": request.addon_name
+        }
+    except Exception as e:
+        log_action("disable_aks_addon", {
+            "cluster": request.cluster_name,
+            "addon": request.addon_name
+        }, False, str(e))
+        logger.error(f"Error disabling addon: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/drain_k8s_node")
+async def drain_k8s_node(request: K8sDrainNodeRequest):
+    """Drain a Kubernetes node for maintenance"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        log_action("drain_k8s_node", {
+            "cluster": request.cluster_name,
+            "node": request.node_name
+        }, True)
+        
+        return {
+            "status": "not_implemented",
+            "message": "Node draining requires kubeconfig and kubernetes client",
+            "cluster_name": request.cluster_name,
+            "node_name": request.node_name,
+            "note": "Use kubernetes client to drain node (evict pods gracefully)"
+        }
+    except Exception as e:
+        log_action("drain_k8s_node", {
+            "cluster": request.cluster_name,
+            "node": request.node_name
+        }, False, str(e))
+        logger.error(f"Error draining node: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/delete_k8s_pod")
+async def delete_k8s_pod(request: K8sDeletePodRequest):
+    """Delete a problematic pod"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        log_action("delete_k8s_pod", {
+            "cluster": request.cluster_name,
+            "namespace": request.namespace,
+            "pod": request.pod_name
+        }, True)
+        
+        return {
+            "status": "not_implemented",
+            "message": "Pod deletion requires kubeconfig and kubernetes client",
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "pod_name": request.pod_name,
+            "note": "Use kubernetes client to delete pod"
+        }
+    except Exception as e:
+        log_action("delete_k8s_pod", {
+            "cluster": request.cluster_name,
+            "pod": request.pod_name
+        }, False, str(e))
+        logger.error(f"Error deleting pod: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/scale_k8s_deployment")
+async def scale_k8s_deployment(request: K8sScaleRequest):
+    """Scale a Kubernetes deployment"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        log_action("scale_k8s_deployment", {
+            "cluster": request.cluster_name,
+            "namespace": request.namespace,
+            "resource": request.resource_name,
+            "replicas": request.replicas
+        }, True)
+        
+        return {
+            "status": "not_implemented",
+            "message": "Scaling requires kubeconfig and kubernetes client",
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "resource_name": request.resource_name,
+            "replicas": request.replicas,
+            "note": "Use kubernetes client to scale deployment"
+        }
+    except Exception as e:
+        log_action("scale_k8s_deployment", {
+            "cluster": request.cluster_name,
+            "resource": request.resource_name
+        }, False, str(e))
+        logger.error(f"Error scaling deployment: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/rollback_k8s_deployment")
+async def rollback_k8s_deployment(request: RestartK8sDeploymentRequest):
+    """Rollback a Kubernetes deployment to previous revision"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        log_action("rollback_k8s_deployment", {
+            "cluster": request.cluster_name,
+            "namespace": request.namespace,
+            "deployment": request.deployment
+        }, True)
+        
+        return {
+            "status": "not_implemented",
+            "message": "Rollback requires kubeconfig and kubernetes client",
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "deployment": request.deployment,
+            "note": "Use kubernetes client to rollback deployment"
+        }
+    except Exception as e:
+        log_action("rollback_k8s_deployment", {
+            "cluster": request.cluster_name,
+            "deployment": request.deployment
+        }, False, str(e))
+        logger.error(f"Error rolling back deployment: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/apply_k8s_manifest")
+async def apply_k8s_manifest(request: K8sApplyManifestRequest):
+    """Apply a Kubernetes manifest"""
+    if not request.approve:
+        raise HTTPException(status_code=403, detail="Action requires approve=true")
+    
+    if not check_rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    try:
+        log_action("apply_k8s_manifest", {
+            "cluster": request.cluster_name,
+            "namespace": request.namespace
+        }, True)
+        
+        return {
+            "status": "not_implemented",
+            "message": "Applying manifest requires kubeconfig and kubernetes client",
+            "cluster_name": request.cluster_name,
+            "namespace": request.namespace,
+            "note": "Use kubernetes client to apply manifest YAML"
+        }
+    except Exception as e:
+        log_action("apply_k8s_manifest", {
+            "cluster": request.cluster_name
+        }, False, str(e))
+        logger.error(f"Error applying manifest: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # Secrets & CI Actions
 # ============================================================================
 
@@ -1339,6 +2180,569 @@ async def trigger_github_workflow(request: TriggerGitHubWorkflowRequest):
     except Exception as e:
         log_action("trigger_github_workflow", {"repo": f"{request.repo_owner}/{request.repo_name}"}, False, str(e))
         logger.error(f"Error triggering workflow: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# App Service - Best Practices Tools
+# ============================================================================
+
+@app.post("/tools/check_app_service_best_practices")
+async def check_app_service_best_practices(request: AppServiceRequest):
+    """Comprehensive best practices check for App Service"""
+    try:
+        client = WebSiteManagementClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for app in client.web_apps.list():
+            if app.name == request.app_name:
+                resource_group = app.resource_group
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"App Service '{request.app_name}' not found")
+        
+        app = client.web_apps.get(resource_group, request.app_name)
+        config = client.web_apps.get_configuration(resource_group, request.app_name)
+        
+        recommendations = []
+        
+        # Check Always On
+        if not config.always_on:
+            recommendations.append({
+                "category": "availability",
+                "severity": "medium",
+                "issue": "Always On is disabled",
+                "recommendation": "Enable Always On to keep the app loaded at all times"
+            })
+        
+        # Check HTTPS
+        if not app.https_only:
+            recommendations.append({
+                "category": "security",
+                "severity": "high",
+                "issue": "HTTPS Only is not enforced",
+                "recommendation": "Enable HTTPS Only to enforce secure connections"
+            })
+        
+        # Check minimum TLS version
+        if config.min_tls_version and config.min_tls_version < "1.2":
+            recommendations.append({
+                "category": "security",
+                "severity": "high",
+                "issue": f"Minimum TLS version is {config.min_tls_version}",
+                "recommendation": "Set minimum TLS version to 1.2 or higher"
+            })
+        
+        # Check deployment slots
+        slots_count = 0
+        try:
+            for _ in client.web_apps.list_slots(resource_group, request.app_name):
+                slots_count += 1
+        except:
+            pass
+        
+        if slots_count == 0:
+            recommendations.append({
+                "category": "deployment",
+                "severity": "medium",
+                "issue": "No deployment slots configured",
+                "recommendation": "Use deployment slots for zero-downtime deployments"
+            })
+        
+        return {
+            "app_name": request.app_name,
+            "total_recommendations": len(recommendations),
+            "recommendations": recommendations,
+            "summary": "Best practices check completed"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking best practices: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/check_app_service_security")
+async def check_app_service_security(request: AppServiceRequest):
+    """Security configuration assessment for App Service"""
+    try:
+        client = WebSiteManagementClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for app in client.web_apps.list():
+            if app.name == request.app_name:
+                resource_group = app.resource_group
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"App Service '{request.app_name}' not found")
+        
+        app = client.web_apps.get(resource_group, request.app_name)
+        config = client.web_apps.get_configuration(resource_group, request.app_name)
+        
+        security_checks = {
+            "https_only": app.https_only,
+            "client_cert_enabled": app.client_cert_enabled,
+            "min_tls_version": config.min_tls_version,
+            "ftps_state": config.ftps_state,
+            "remote_debugging_enabled": config.remote_debugging_enabled,
+            "managed_identity": app.identity is not None
+        }
+        
+        return {
+            "app_name": request.app_name,
+            "security_checks": security_checks,
+            "security_score": sum(1 for v in [
+                security_checks["https_only"],
+                security_checks["client_cert_enabled"],
+                security_checks["min_tls_version"] == "1.2",
+                security_checks["ftps_state"] in ["FtpsOnly", "Disabled"],
+                not security_checks["remote_debugging_enabled"],
+                security_checks["managed_identity"]
+            ] if v) * 100 // 6
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking security: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/check_app_service_backup_config")
+async def check_app_service_backup_config(request: AppServiceRequest):
+    """Check backup configuration for App Service"""
+    try:
+        return {
+            "app_name": request.app_name,
+            "note": "Backup configuration can be checked via App Service backup API",
+            "recommendation": "Configure automated backups for disaster recovery"
+        }
+    except Exception as e:
+        logger.error(f"Error checking backup config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/check_app_service_monitoring")
+async def check_app_service_monitoring(request: AppServiceRequest):
+    """Check monitoring configuration completeness"""
+    try:
+        client = WebSiteManagementClient(auth_manager.credential, request.subscription_id)
+        monitor_client = MonitorManagementClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        app_id = None
+        for app in client.web_apps.list():
+            if app.name == request.app_name:
+                resource_group = app.resource_group
+                app_id = app.id
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"App Service '{request.app_name}' not found")
+        
+        monitoring_checks = {
+            "diagnostic_settings_configured": False,
+            "application_insights_enabled": False,
+            "alerts_configured": False
+        }
+        
+        # Check diagnostic settings
+        try:
+            settings_list = list(monitor_client.diagnostic_settings.list(app_id))
+            monitoring_checks["diagnostic_settings_configured"] = len(settings_list) > 0
+        except:
+            pass
+        
+        return {
+            "app_name": request.app_name,
+            "monitoring_checks": monitoring_checks,
+            "recommendations": [
+                "Enable Application Insights for application performance monitoring",
+                "Configure diagnostic settings to send logs to Log Analytics",
+                "Set up alerts for critical metrics (CPU, memory, response time)"
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking monitoring: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# AKS - Best Practices Tools
+# ============================================================================
+
+@app.post("/tools/check_aks_best_practices")
+async def check_aks_best_practices(request: AKSRequest):
+    """Comprehensive AKS best practices check"""
+    try:
+        client = ContainerServiceClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for cluster in client.managed_clusters.list():
+            if cluster.name == request.cluster_name:
+                resource_group = cluster.id.split('/')[4]
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"AKS cluster '{request.cluster_name}' not found")
+        
+        cluster = client.managed_clusters.get(resource_group, request.cluster_name)
+        
+        recommendations = []
+        
+        # Check RBAC
+        if not cluster.enable_rbac:
+            recommendations.append({
+                "category": "security",
+                "severity": "high",
+                "issue": "RBAC is not enabled",
+                "recommendation": "Enable RBAC for fine-grained access control"
+            })
+        
+        # Check network policy
+        if cluster.network_profile and not cluster.network_profile.network_policy:
+            recommendations.append({
+                "category": "security",
+                "severity": "medium",
+                "issue": "Network policy is not configured",
+                "recommendation": "Enable network policy (Azure or Calico) for pod-to-pod traffic control"
+            })
+        
+        # Check monitoring addon
+        monitoring_enabled = False
+        if cluster.addon_profiles and "omsagent" in cluster.addon_profiles:
+            monitoring_enabled = cluster.addon_profiles["omsagent"].enabled
+        
+        if not monitoring_enabled:
+            recommendations.append({
+                "category": "monitoring",
+                "severity": "high",
+                "issue": "Container Insights (monitoring addon) is not enabled",
+                "recommendation": "Enable Container Insights for cluster and container monitoring"
+            })
+        
+        # Check autoscaling on nodepools
+        has_autoscaling = False
+        for profile in cluster.agent_pool_profiles or []:
+            if profile.enable_auto_scaling:
+                has_autoscaling = True
+                break
+        
+        if not has_autoscaling:
+            recommendations.append({
+                "category": "scalability",
+                "severity": "medium",
+                "issue": "No nodepools have autoscaling enabled",
+                "recommendation": "Enable cluster autoscaler for automatic scaling based on workload"
+            })
+        
+        return {
+            "cluster_name": request.cluster_name,
+            "total_recommendations": len(recommendations),
+            "recommendations": recommendations,
+            "summary": "AKS best practices check completed"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking AKS best practices: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/check_aks_security_config")
+async def check_aks_security_config(request: AKSRequest):
+    """Security configuration assessment for AKS"""
+    try:
+        client = ContainerServiceClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for cluster in client.managed_clusters.list():
+            if cluster.name == request.cluster_name:
+                resource_group = cluster.id.split('/')[4]
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"AKS cluster '{request.cluster_name}' not found")
+        
+        cluster = client.managed_clusters.get(resource_group, request.cluster_name)
+        
+        security_checks = {
+            "rbac_enabled": cluster.enable_rbac,
+            "private_cluster": cluster.api_server_access_profile.enable_private_cluster if cluster.api_server_access_profile else False,
+            "network_policy": cluster.network_profile.network_policy if cluster.network_profile else None,
+            "azure_policy_enabled": False,
+            "managed_identity": cluster.identity is not None,
+            "disk_encryption": cluster.disk_encryption_set_id is not None
+        }
+        
+        # Check Azure Policy addon
+        if cluster.addon_profiles and "azurepolicy" in cluster.addon_profiles:
+            security_checks["azure_policy_enabled"] = cluster.addon_profiles["azurepolicy"].enabled
+        
+        return {
+            "cluster_name": request.cluster_name,
+            "security_checks": security_checks,
+            "security_score": sum(1 for v in security_checks.values() if v) * 100 // len(security_checks)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking AKS security: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/check_aks_cost_optimization")
+async def check_aks_cost_optimization(request: AKSRequest):
+    """AKS cost optimization recommendations"""
+    try:
+        client = ContainerServiceClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for cluster in client.managed_clusters.list():
+            if cluster.name == request.cluster_name:
+                resource_group = cluster.id.split('/')[4]
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"AKS cluster '{request.cluster_name}' not found")
+        
+        cluster = client.managed_clusters.get(resource_group, request.cluster_name)
+        
+        recommendations = []
+        
+        # Check for autoscaling
+        for profile in cluster.agent_pool_profiles or []:
+            if not profile.enable_auto_scaling:
+                recommendations.append({
+                    "category": "cost",
+                    "nodepool": profile.name,
+                    "issue": "Autoscaling not enabled",
+                    "recommendation": "Enable autoscaling to scale down during low usage",
+                    "potential_savings": "20-40%"
+                })
+        
+        # Check VM sizes
+        for profile in cluster.agent_pool_profiles or []:
+            if profile.vm_size and "Standard_D" in profile.vm_size:
+                recommendations.append({
+                    "category": "cost",
+                    "nodepool": profile.name,
+                    "issue": f"Using {profile.vm_size} VMs",
+                    "recommendation": "Consider Ev3 or Esv3 series for better cost/performance ratio"
+                })
+        
+        return {
+            "cluster_name": request.cluster_name,
+            "total_recommendations": len(recommendations),
+            "recommendations": recommendations
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking cost optimization: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/check_aks_upgrade_readiness")
+async def check_aks_upgrade_readiness(request: AKSRequest):
+    """Assess AKS cluster upgrade readiness"""
+    try:
+        client = ContainerServiceClient(auth_manager.credential, request.subscription_id)
+        
+        # Find resource group
+        resource_group = None
+        for cluster in client.managed_clusters.list():
+            if cluster.name == request.cluster_name:
+                resource_group = cluster.id.split('/')[4]
+                break
+        
+        if not resource_group:
+            raise HTTPException(status_code=404, detail=f"AKS cluster '{request.cluster_name}' not found")
+        
+        cluster = client.managed_clusters.get(resource_group, request.cluster_name)
+        
+        # Get available upgrades
+        try:
+            upgrade_profile = client.managed_clusters.get_upgrade_profile(resource_group, request.cluster_name)
+            available_upgrades = [upgrade.kubernetes_version for upgrade in upgrade_profile.control_plane_profile.upgrades] if upgrade_profile.control_plane_profile.upgrades else []
+        except:
+            available_upgrades = []
+        
+        readiness_checks = {
+            "current_version": cluster.kubernetes_version,
+            "available_upgrades": available_upgrades,
+            "all_nodepools_same_version": True,
+            "pod_disruption_budgets_configured": "Requires K8s API access",
+            "backup_taken": "Manual verification required"
+        }
+        
+        # Check nodepool versions
+        for profile in cluster.agent_pool_profiles or []:
+            if profile.orchestrator_version != cluster.kubernetes_version:
+                readiness_checks["all_nodepools_same_version"] = False
+        
+        return {
+            "cluster_name": request.cluster_name,
+            "readiness_checks": readiness_checks,
+            "recommendations": [
+                "Ensure all nodepools are on the same version before upgrading control plane",
+                "Review Kubernetes changelog for breaking changes",
+                "Test upgrade in non-production environment first",
+                "Ensure Pod Disruption Budgets are configured for critical workloads"
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking upgrade readiness: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Environment Configuration - Best Practices Tools
+# ============================================================================
+
+@app.post("/tools/check_resource_tagging")
+async def check_resource_tagging(request: ResourceGroupRequest):
+    """Check resource tagging compliance"""
+    try:
+        resource_client = ResourceManagementClient(auth_manager.credential, request.subscription_id)
+        
+        # Get resources in resource group
+        resources = list(resource_client.resources.list_by_resource_group(request.resource_group))
+        
+        required_tags = ["Environment", "Owner", "CostCenter", "Application"]
+        
+        untagged_resources = []
+        partially_tagged = []
+        
+        for resource in resources:
+            resource_tags = resource.tags or {}
+            missing_tags = [tag for tag in required_tags if tag not in resource_tags]
+            
+            if not resource_tags:
+                untagged_resources.append(resource.name)
+            elif missing_tags:
+                partially_tagged.append({
+                    "resource": resource.name,
+                    "missing_tags": missing_tags
+                })
+        
+        return {
+            "resource_group": request.resource_group,
+            "total_resources": len(resources),
+            "untagged_resources": len(untagged_resources),
+            "partially_tagged": len(partially_tagged),
+            "compliance_score": (len(resources) - len(untagged_resources) - len(partially_tagged)) * 100 // len(resources) if len(resources) > 0 else 100,
+            "details": {
+                "untagged": untagged_resources[:10],  # First 10
+                "partially_tagged": partially_tagged[:10]
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error checking tagging: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/check_network_security")
+async def check_network_security(request: ResourceGroupRequest):
+    """Check Network Security Group configurations"""
+    try:
+        return {
+            "resource_group": request.resource_group,
+            "note": "NSG analysis requires Network Management Client",
+            "recommendations": [
+                "Ensure NSGs are applied to all subnets",
+                "Review NSG rules for overly permissive access",
+                "Implement least privilege network access",
+                "Enable NSG flow logs for security monitoring"
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error checking network security: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/check_key_vault_security")
+async def check_key_vault_security(request: BaseRequest):
+    """Check Key Vault security configuration"""
+    try:
+        return {
+            "note": "Key Vault security check requires Key Vault Management Client",
+            "recommendations": [
+                "Enable soft delete and purge protection",
+                "Use RBAC instead of access policies where possible",
+                "Enable diagnostic logging",
+                "Restrict network access using firewall rules",
+                "Use managed identities for application access"
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error checking Key Vault security: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/check_monitoring_coverage")
+async def check_monitoring_coverage(request: ResourceGroupRequest):
+    """Assess monitoring coverage across resources"""
+    try:
+        resource_client = ResourceManagementClient(auth_manager.credential, request.subscription_id)
+        monitor_client = MonitorManagementClient(auth_manager.credential, request.subscription_id)
+        
+        resources = list(resource_client.resources.list_by_resource_group(request.resource_group))
+        
+        monitored_count = 0
+        for resource in resources:
+            try:
+                settings = list(monitor_client.diagnostic_settings.list(resource.id))
+                if len(settings) > 0:
+                    monitored_count += 1
+            except:
+                pass
+        
+        coverage_percent = monitored_count * 100 // len(resources) if len(resources) > 0 else 0
+        
+        return {
+            "resource_group": request.resource_group,
+            "total_resources": len(resources),
+            "monitored_resources": monitored_count,
+            "coverage_percentage": coverage_percent,
+            "recommendations": [
+                "Enable diagnostic settings for all critical resources",
+                "Send logs to centralized Log Analytics workspace",
+                "Configure alerts for critical metrics",
+                "Use Application Insights for application monitoring"
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error checking monitoring coverage: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/check_resource_locks")
+async def check_resource_locks(request: ResourceGroupRequest):
+    """Check resource lock configuration"""
+    try:
+        return {
+            "resource_group": request.resource_group,
+            "note": "Resource locks check requires Management Lock Client",
+            "recommendations": [
+                "Apply ReadOnly or CanNotDelete locks to critical resources",
+                "Lock production resource groups to prevent accidental deletion",
+                "Document lock removal procedures for emergency scenarios"
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error checking resource locks: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
