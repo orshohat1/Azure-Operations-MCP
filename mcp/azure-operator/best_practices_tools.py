@@ -122,7 +122,7 @@ def check_monitoring_coverage(auth_manager):
                     settings = list(monitor_client.diagnostic_settings.list(resource.id))
                     if len(settings) > 0:
                         monitored_count += 1
-                except:
+                except Exception:
                     pass
             
             coverage_percent = monitored_count * 100 // len(resources) if len(resources) > 0 else 0
@@ -182,7 +182,7 @@ def get_alerts_last_24h(auth_manager):
                         "description": alert.description,
                         "type": "ActivityLog"
                     })
-            except:
+            except Exception:
                 pass
             
             return {
