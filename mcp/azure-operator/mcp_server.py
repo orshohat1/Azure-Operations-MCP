@@ -313,24 +313,100 @@ async def call_tool(name: str, arguments: dict) -> Sequence[TextContent | ImageC
         )]
 
 
+def validate_environment():
+    """Validate that the environment is properly configured"""
+    issues = []
+    
+    # Check Python version
+    import sys
+    if sys.version_info < (3, 11):
+        issues.append(f"Python 3.11+ required, found {sys.version_info.major}.{sys.version_info.minor}")
+    
+    # Check required modules
+    required_modules = [
+        'azure.identity',
+        'azure.mgmt.web',
+        'azure.mgmt.monitor',
+        'azure.mgmt.containerservice',
+        'mcp',
+        'mcp.server',
+    ]
+    
+    for module in required_modules:
+        try:
+            __import__(module)
+        except ImportError:
+            issues.append(f"Missing required module: {module}")
+    
+    # Check if TEST_MODE is enabled
+    if os.getenv("TEST_MODE", "false").lower() == "true":
+        logger.info("🧪 Running in TEST MODE - No Azure authentication required")
+    else:
+        # Check Azure authentication
+        if not os.getenv("AZURE_CLIENT_ID") and not os.path.exists(os.path.expanduser("~/.azure")):
+            logger.warning("⚠️  No Azure CLI login detected and no service principal configured")
+            logger.warning("💡 Run 'az login' or set AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET")
+    
+    return issues
+
+
 async def main():
     """Main entry point for MCP server"""
     global auth_manager
     
+    # Print banner
+    logger.info("=" * 60)
+    logger.info("Azure Operator MCP Server v1.0.0")
+    logger.info("Model Context Protocol for Azure Operations")
+    logger.info("=" * 60)
+    
+    # Validate environment
+    logger.info("🔍 Validating environment...")
+    issues = validate_environment()
+    
+    if issues:
+        logger.error("❌ Environment validation failed:")
+        for issue in issues:
+            logger.error(f"  - {issue}")
+        logger.error("\n💡 Please run: pip install -r requirements.txt")
+        return 1
+    
+    logger.info("✅ Environment validation passed")
+    
     # Initialize authentication
-    logger.info("Initializing Azure Operator MCP Server...")
-    auth_manager = AuthManager()
-    logger.info(f"Authentication mode: {auth_manager.auth_mode}")
+    logger.info("🔐 Initializing authentication...")
+    try:
+        auth_manager = AuthManager()
+        logger.info(f"✅ Authentication mode: {auth_manager.auth_mode}")
+    except Exception as e:
+        logger.error(f"❌ Authentication failed: {e}")
+        if os.getenv("TEST_MODE", "false").lower() != "true":
+            logger.info("💡 Set TEST_MODE=true to run without Azure authentication")
+        return 1
     
     # Run the stdio server
-    async with stdio_server() as (read_stream, write_stream):
-        logger.info("MCP server started via stdio")
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options()
-        )
+    logger.info("🚀 Starting MCP server via stdio...")
+    logger.info("📡 Ready to accept connections from MCP clients")
+    logger.info("=" * 60)
+    
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options()
+            )
+    except KeyboardInterrupt:
+        logger.info("\n🛑 Server stopped by user")
+        return 0
+    except Exception as e:
+        logger.error(f"❌ Server error: {e}", exc_info=True)
+        return 1
+    
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+    exit_code = asyncio.run(main())
+    sys.exit(exit_code if exit_code else 0)

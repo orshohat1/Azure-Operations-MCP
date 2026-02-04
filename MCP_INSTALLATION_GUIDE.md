@@ -106,6 +106,37 @@ Press `Ctrl+C` to stop.
 
 ## 🔌 Integration with GitHub Copilot in VSCode
 
+### Quick Setup (Recommended)
+
+We provide an automated setup script that configures everything for you:
+
+#### On macOS/Linux:
+```bash
+cd mcp/azure-operator
+./setup_vscode.sh
+```
+
+#### On Windows:
+```cmd
+cd mcp\azure-operator
+setup_vscode.bat
+```
+
+The script will:
+1. ✓ Create and activate virtual environment
+2. ✓ Install all dependencies
+3. ✓ Check Azure authentication
+4. ✓ Test MCP server startup
+5. ✓ Verify VS Code configuration
+
+After running the script, **restart VS Code** and you're ready to go!
+
+---
+
+### Manual Setup
+
+If you prefer manual configuration, follow these steps:
+
 ### Step 1: Verify GitHub Copilot Extensions
 
 Ensure you have these extensions installed in VSCode:
@@ -114,10 +145,9 @@ Ensure you have these extensions installed in VSCode:
 
 ### Step 2: Configure MCP Server in VSCode
 
-#### Method 1: Workspace Settings (Recommended)
+The repository includes a pre-configured `.vscode/settings.json` file that sets up the MCP server.
 
-1. Open your workspace in VSCode
-2. Create or edit `.vscode/settings.json`:
+**Workspace Configuration** (already included):
 
 ```json
 {
@@ -127,14 +157,13 @@ Ensure you have these extensions installed in VSCode:
         "azure-operator": {
           "command": "python",
           "args": [
-            "-m",
-            "mcp_server"
+            "${workspaceFolder}/mcp/azure-operator/mcp_server.py"
           ],
-          "cwd": "${workspaceFolder}/mcp/azure-operator",
           "env": {
             "PYTHONPATH": "${workspaceFolder}/mcp/azure-operator",
             "LOG_LEVEL": "INFO"
-          }
+          },
+          "cwd": "${workspaceFolder}/mcp/azure-operator"
         }
       }
     }
@@ -142,12 +171,11 @@ Ensure you have these extensions installed in VSCode:
 }
 ```
 
-#### Method 2: User Settings (Global)
+**For User Settings** (if you want global configuration):
 
 1. Open VSCode Settings (Cmd/Ctrl + ,)
-2. Search for "Copilot MCP"
-3. Click "Edit in settings.json"
-4. Add the MCP server configuration:
+2. Search for "Copilot MCP" or click the gear icon → Settings (JSON)
+3. Add the MCP server configuration with absolute paths:
 
 ```json
 {
@@ -157,9 +185,7 @@ Ensure you have these extensions installed in VSCode:
         "azure-operator": {
           "command": "python",
           "args": [
-            "/absolute/path/to/Azure-Operations-MCP/mcp/azure-operator/venv/bin/python",
-            "-m",
-            "mcp_server"
+            "/absolute/path/to/Azure-Operations-MCP/mcp/azure-operator/mcp_server.py"
           ],
           "cwd": "/absolute/path/to/Azure-Operations-MCP/mcp/azure-operator",
           "env": {
@@ -175,21 +201,35 @@ Ensure you have these extensions installed in VSCode:
 
 **Note:** Replace `/absolute/path/to/` with your actual path.
 
-### Step 3: Restart VSCode
+### Step 3: Validate Installation
+
+Run the validation script to ensure everything is working:
+
+```bash
+cd mcp/azure-operator
+python validate.py
+```
+
+You should see:
+```
+✅ All validations passed! Server is ready to use.
+```
+
+### Step 4: Restart VSCode
 
 Close and reopen VSCode to load the MCP server configuration.
 
-### Step 4: Verify Connection
+### Step 5: Verify Connection
 
-1. Open GitHub Copilot Chat (Cmd/Ctrl + Shift + I)
-2. Type: `@azure-operator`
+1. Open GitHub Copilot Chat (Cmd/Ctrl + Shift + I or click the chat icon)
+2. Type: `@azure-operator` and press space
 3. You should see the Azure Operator MCP server as an available context
-4. Try a command:
+4. Try a test command:
    ```
-   @azure-operator list all app services in subscription sub-12345
+   @azure-operator What tools are available?
    ```
 
-### Step 5: Using Azure Operator with Copilot
+### Step 6: Using Azure Operator with Copilot
 
 Example prompts:
 
