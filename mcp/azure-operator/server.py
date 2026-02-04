@@ -1248,7 +1248,7 @@ async def restart_k8s_deployment(request: RestartK8sDeploymentRequest):
 
 @app.post("/tools/cordon_node")
 async def cordon_node(request: CordonNodeRequest):
-    """Cordon (drain) a Kubernetes node"""
+    """Cordon a Kubernetes node (mark as unschedulable)"""
     if not request.approve:
         raise HTTPException(status_code=403, detail="Action requires approve=true")
     
