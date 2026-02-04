@@ -54,6 +54,14 @@ class AuthManager:
         client_id = os.getenv("AZURE_CLIENT_ID")
         tenant_id = os.getenv("AZURE_TENANT_ID")
         client_secret = os.getenv("AZURE_CLIENT_SECRET")
+        test_mode = os.getenv("TEST_MODE", "false").lower() == "true"
+        
+        if test_mode:
+            self.auth_mode = "Test Mode (No Authentication)"
+            logger.warning("⚠️  Running in TEST MODE - authentication disabled")
+            logger.warning("⚠️  Do not use in production!")
+            self.credential = None
+            return
         
         if client_id and tenant_id and client_secret:
             self.auth_mode = "Service Principal"
