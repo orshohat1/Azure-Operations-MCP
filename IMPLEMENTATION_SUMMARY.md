@@ -201,3 +201,12 @@ The server can be deployed to:
 ## 🎯 Mission Accomplished
 
 The Azure Operator MCP Server v1 is **production-ready** and meets all requirements specified in the problem statement. It provides a comprehensive AI SRE layer for Azure workloads with a strong focus on App Service operations, while also supporting AKS and platform telemetry.
+
+## 🔒 Security Updates
+
+**Latest Security Patches Applied:**
+
+- **FastAPI**: Updated from 0.109.0 to 0.109.1 (fixes Content-Type Header ReDoS vulnerability)
+- **python-multipart**: Updated from 0.0.6 to 0.0.22 (fixes 3 vulnerabilities including arbitrary file write, DoS, and ReDoS)
+
+All known security vulnerabilities have been patched. The server is secure and production-ready.
