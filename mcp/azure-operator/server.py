@@ -235,6 +235,34 @@ class TriggerGitHubWorkflowRequest(ActionRequest):
     ref: str = Field(default="main", description="Git ref to run workflow on")
 
 
+class EnableDetailedErrorLogsRequest(AppServiceRequest, ActionRequest):
+    pass
+
+
+class ClearAppServiceCacheRequest(AppServiceRequest, ActionRequest):
+    pass
+
+
+class RedeployLastReleaseRequest(AppServiceRequest, ActionRequest):
+    pass
+
+
+class SwapSlotsRequest(AppServiceRequest, ActionRequest):
+    pass
+
+
+class ResetAppServiceCredentialsRequest(AppServiceRequest, ActionRequest):
+    pass
+
+
+class EnableAutoscaleRequest(ActionRequest):
+    plan_name: str = Field(..., description="App Service Plan name")
+
+
+class DisableAutoscaleRequest(ActionRequest):
+    plan_name: str = Field(..., description="App Service Plan name")
+
+
 # ============================================================================
 # Health Check
 # ============================================================================
@@ -954,9 +982,9 @@ async def scale_app_service_plan(request: ScaleAppServicePlanRequest):
 
 
 @app.post("/tools/enable_detailed_error_logs")
-async def enable_detailed_error_logs(request: AppServiceRequest, approve: bool = False):
+async def enable_detailed_error_logs(request: EnableDetailedErrorLogsRequest):
     """Enable detailed error logging for an App Service"""
-    if not approve:
+    if not request.approve:
         raise HTTPException(status_code=403, detail="Action requires approve=true")
     
     if not check_rate_limit():
@@ -976,9 +1004,9 @@ async def enable_detailed_error_logs(request: AppServiceRequest, approve: bool =
 
 
 @app.post("/tools/clear_app_service_cache")
-async def clear_app_service_cache(request: AppServiceRequest, approve: bool = False):
+async def clear_app_service_cache(request: ClearAppServiceCacheRequest):
     """Clear temporary cache for an App Service"""
-    if not approve:
+    if not request.approve:
         raise HTTPException(status_code=403, detail="Action requires approve=true")
     
     if not check_rate_limit():
@@ -998,9 +1026,9 @@ async def clear_app_service_cache(request: AppServiceRequest, approve: bool = Fa
 
 
 @app.post("/tools/redeploy_last_release")
-async def redeploy_last_release(request: AppServiceRequest, approve: bool = False):
+async def redeploy_last_release(request: RedeployLastReleaseRequest):
     """Redeploy the last successful release"""
-    if not approve:
+    if not request.approve:
         raise HTTPException(status_code=403, detail="Action requires approve=true")
     
     if not check_rate_limit():
@@ -1020,9 +1048,9 @@ async def redeploy_last_release(request: AppServiceRequest, approve: bool = Fals
 
 
 @app.post("/tools/swap_slots")
-async def swap_slots(request: AppServiceRequest, approve: bool = False):
+async def swap_slots(request: SwapSlotsRequest):
     """Swap staging slot with production"""
-    if not approve:
+    if not request.approve:
         raise HTTPException(status_code=403, detail="Action requires approve=true")
     
     if not check_rate_limit():
@@ -1056,9 +1084,9 @@ async def swap_slots(request: AppServiceRequest, approve: bool = False):
 
 
 @app.post("/tools/reset_app_service_credentials")
-async def reset_app_service_credentials(request: AppServiceRequest, approve: bool = False):
+async def reset_app_service_credentials(request: ResetAppServiceCredentialsRequest):
     """Reset publishing credentials for an App Service"""
-    if not approve:
+    if not request.approve:
         raise HTTPException(status_code=403, detail="Action requires approve=true")
     
     if not check_rate_limit():
@@ -1125,9 +1153,9 @@ async def set_app_setting(request: SetAppSettingRequest):
 
 
 @app.post("/tools/enable_autoscale")
-async def enable_autoscale(request: BaseRequest, plan_name: str = "", approve: bool = False):
+async def enable_autoscale(request: EnableAutoscaleRequest):
     """Enable autoscaling for an App Service Plan"""
-    if not approve:
+    if not request.approve:
         raise HTTPException(status_code=403, detail="Action requires approve=true")
     
     if not check_rate_limit():
@@ -1137,19 +1165,19 @@ async def enable_autoscale(request: BaseRequest, plan_name: str = "", approve: b
         return {
             "status": "not_implemented",
             "message": "Autoscale configuration requires Monitor API",
-            "plan_name": plan_name,
+            "plan_name": request.plan_name,
             "note": "Use MonitorManagementClient to create autoscale settings"
         }
     except Exception as e:
-        log_action("enable_autoscale", {"plan_name": plan_name}, False, str(e))
+        log_action("enable_autoscale", {"plan_name": request.plan_name}, False, str(e))
         logger.error(f"Error enabling autoscale: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/tools/disable_autoscale")
-async def disable_autoscale(request: BaseRequest, plan_name: str = "", approve: bool = False):
+async def disable_autoscale(request: DisableAutoscaleRequest):
     """Disable autoscaling for an App Service Plan"""
-    if not approve:
+    if not request.approve:
         raise HTTPException(status_code=403, detail="Action requires approve=true")
     
     if not check_rate_limit():
@@ -1159,11 +1187,11 @@ async def disable_autoscale(request: BaseRequest, plan_name: str = "", approve: 
         return {
             "status": "not_implemented",
             "message": "Autoscale configuration requires Monitor API",
-            "plan_name": plan_name,
+            "plan_name": request.plan_name,
             "note": "Use MonitorManagementClient to disable autoscale settings"
         }
     except Exception as e:
-        log_action("disable_autoscale", {"plan_name": plan_name}, False, str(e))
+        log_action("disable_autoscale", {"plan_name": request.plan_name}, False, str(e))
         logger.error(f"Error disabling autoscale: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
