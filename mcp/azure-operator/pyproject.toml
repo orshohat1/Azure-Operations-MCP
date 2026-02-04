@@ -1,0 +1,17 @@
+[project]
+name = "azure-operator-mcp"
+version = "1.0.0"
+description = "Azure Operator MCP Server - AI SRE layer for Azure workloads"
+requires-python = ">=3.11"
+authors = [
+    {name = "Azure Operator Team"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.urls]
+Homepage = "https://github.com/orshohat1/Azure-Operations-MCP"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
