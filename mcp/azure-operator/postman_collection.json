@@ -1,0 +1,350 @@
+{
+  "info": {
+    "name": "Azure Operator MCP Server",
+    "description": "Collection of API calls for Azure Operator MCP Server - AI SRE layer for Azure workloads",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "azure-operator-mcp-v1",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "subscription_id",
+      "value": "YOUR_AZURE_SUBSCRIPTION_ID",
+      "type": "string"
+    },
+    {
+      "key": "app_name",
+      "value": "your-app-service-name",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health & Info",
+      "item": [
+        {
+          "name": "Root - Server Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": ["{{baseUrl}}"],
+              "path": [""]
+            }
+          }
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "App Service - Observability",
+      "item": [
+        {
+          "name": "List App Services",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/list_app_services",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "list_app_services"]
+            }
+          }
+        },
+        {
+          "name": "Get App Service State",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\",\n  \"app_name\": \"{{app_name}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/get_app_service_state",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "get_app_service_state"]
+            }
+          }
+        },
+        {
+          "name": "Get App Service Config",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\",\n  \"app_name\": \"{{app_name}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/get_app_service_config",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "get_app_service_config"]
+            }
+          }
+        },
+        {
+          "name": "Get App Service Environment Variables",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\",\n  \"app_name\": \"{{app_name}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/get_app_service_environment_variables",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "get_app_service_environment_variables"]
+            }
+          }
+        },
+        {
+          "name": "Get App Service Instance Health",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\",\n  \"app_name\": \"{{app_name}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/get_app_service_instance_health",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "get_app_service_instance_health"]
+            }
+          }
+        },
+        {
+          "name": "Get App Service Scaling Rules",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\",\n  \"app_name\": \"{{app_name}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/get_app_service_scaling_rules",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "get_app_service_scaling_rules"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "App Service - Remediation",
+      "item": [
+        {
+          "name": "Restart App Service",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\",\n  \"app_name\": \"{{app_name}}\",\n  \"approve\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/restart_app_service",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "restart_app_service"]
+            }
+          }
+        },
+        {
+          "name": "Restart App Service Slot",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\",\n  \"app_name\": \"{{app_name}}\",\n  \"slot\": \"staging\",\n  \"approve\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/restart_app_service_slot",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "restart_app_service_slot"]
+            }
+          }
+        },
+        {
+          "name": "Set App Setting",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\",\n  \"app_name\": \"{{app_name}}\",\n  \"key\": \"MY_SETTING\",\n  \"value\": \"my_value\",\n  \"approve\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/set_app_setting",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "set_app_setting"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Azure Monitor",
+      "item": [
+        {
+          "name": "Get Alerts Last 24h",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/get_alerts_last_24h",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "get_alerts_last_24h"]
+            }
+          }
+        },
+        {
+          "name": "Get Recent Exceptions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_insights_resource_id\": \"/subscriptions/{sub}/resourceGroups/{rg}/providers/microsoft.insights/components/{name}\",\n  \"last_hours\": 24\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/get_recent_exceptions",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "get_recent_exceptions"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "AKS - Observability",
+      "item": [
+        {
+          "name": "List AKS Clusters",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/list_aks_clusters",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "list_aks_clusters"]
+            }
+          }
+        },
+        {
+          "name": "Get AKS Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription_id\": \"{{subscription_id}}\",\n  \"cluster_name\": \"your-aks-cluster\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tools/get_aks_status",
+              "host": ["{{baseUrl}}"],
+              "path": ["tools", "get_aks_status"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

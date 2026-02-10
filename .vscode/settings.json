@@ -1,0 +1,47 @@
+{
+  "// Azure Operator MCP Server Configuration": "This configures GitHub Copilot to use the Azure Operator MCP server",
+  
+  "github.copilot.advanced": {
+    "debug.overrideEngine": "gpt-4",
+    "debug.testOverrideProxyUrl": "",
+    "mcp": {
+      "servers": {
+        "azure-operator": {
+          "command": "python",
+          "args": [
+            "${workspaceFolder}/mcp/azure-operator/mcp_server.py"
+          ],
+          "env": {
+            "PYTHONPATH": "${workspaceFolder}/mcp/azure-operator",
+            "LOG_LEVEL": "INFO"
+          },
+          "cwd": "${workspaceFolder}/mcp/azure-operator"
+        }
+      }
+    }
+  },
+  
+  "python.defaultInterpreterPath": "${workspaceFolder}/mcp/azure-operator/venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/mcp/azure-operator"
+  ],
+  
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/venv": true,
+    "**/.pytest_cache": true
+  },
+  
+  "editor.formatOnSave": true,
+  "python.linting.enabled": true,
+  "python.linting.pylintEnabled": false,
+  "python.linting.flake8Enabled": true,
+  
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.python",
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true
+  }
+}

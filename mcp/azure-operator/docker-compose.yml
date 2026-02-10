@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  azure-operator-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: azure-operator-mcp
+    ports:
+      - "8000:8000"
+    environment:
+      # Azure authentication (optional - for Service Principal)
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID:-}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET:-}
+      
+      # Default subscription
+      - AZURE_SUBSCRIPTION_ID=${AZURE_SUBSCRIPTION_ID:-}
+      
+      # Server configuration
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # Rate limiting
+      - MAX_ACTIONS_PER_MINUTE=10
+    volumes:
+      # Mount Azure CLI credentials for local development
+      - ~/.azure:/home/azureop/.azure:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
